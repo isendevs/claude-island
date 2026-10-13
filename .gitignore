@@ -1,0 +1,8 @@
+# Installed packages (recreate with: npm install)
+node_modules/
+
+# Built app (recreate with: npm run package)
+dist/
+
+# Generated preview of the icon (recreate with: npm run icon)
+build/icon-preview.png

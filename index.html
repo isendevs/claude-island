@@ -1,0 +1,627 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
+<title>Claude Island</title>
+<style>
+  :root {
+    --bg: #000;
+    --text: #f5f5f7;
+    --muted: #8e8e93;
+    --faint: #5a5a5e;
+    --track: #2c2c2e;
+    --row-hover: #141416;
+    --clawd: #d97757; /* Claude orange */
+    --green: #30d158;
+    --yellow: #ffd60a;
+    --orange: #ff9f0a;
+    --red: #ff453a;
+    --ear: 10px; /* Size of the curved "shoulders" where the notch meets the screen edge. */
+    --bar-h: 30px; /* Height of the notch's top bar. */
+    /* Apple-style easing: fast start, long soft landing. */
+    --spring: cubic-bezier(0.32, 0.72, 0, 1);
+    --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  }
+  html, body {
+    margin: 0;
+    background: transparent;
+    overflow: hidden;
+    font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    cursor: default;
+  }
+  button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+
+  /* ---------- The notch ---------- */
+  #island {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    transform-origin: top center; /* Grows downward, stays glued to the top edge. */
+    width: 200px;
+    height: var(--bar-h);
+    background: var(--bg);
+    border-radius: 0 0 12px 12px; /* Flat top, rounded bottom. */
+    transition:
+      width 0.5s var(--spring),
+      height 0.5s var(--spring),
+      border-radius 0.5s var(--spring);
+  }
+  #island.expanded { border-radius: 0 0 24px 24px; }
+
+  /* The curved shoulders: a black square beside each top corner, with a
+     quarter circle cut out of it. Together they make the notch look like
+     it melts into the top of the screen. */
+  #island::before,
+  #island::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    width: var(--ear);
+    height: var(--ear);
+  }
+  #island::before {
+    left: calc(-1 * var(--ear));
+    background: radial-gradient(circle at 0 100%, transparent calc(var(--ear) - 0.5px), var(--bg) var(--ear));
+  }
+  #island::after {
+    right: calc(-1 * var(--ear));
+    background: radial-gradient(circle at 100% 100%, transparent calc(var(--ear) - 0.5px), var(--bg) var(--ear));
+  }
+
+  #island.bump { animation: bump 0.45s var(--spring); }
+  @keyframes bump {
+    40% { transform: translateX(-50%) scale(1.06); }
+    100% { transform: translateX(-50%) scale(1); }
+  }
+
+  /* Content is clipped to the notch shape; the shoulders sit outside it. */
+  .clip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+  }
+
+  /* ---------- Top bar (always visible) ---------- */
+  .topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--bar-h);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    transition: padding 0.5s var(--spring);
+  }
+  #island.expanded .topbar { padding: 0 18px; }
+  .topbar .value { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .topbar .spacer { flex: 1; }
+
+  .clawd { flex: none; display: block; }
+  /* Clawd hops while Claude is working. */
+  #island.working .topbar .clawd { animation: hop 0.6s steps(2) infinite; }
+  @keyframes hop {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(-2px); }
+  }
+
+  .spinner {
+    width: 12px;
+    text-align: center;
+    color: var(--clawd);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0.45;
+    transition: opacity 0.3s;
+  }
+  #island.working .spinner { opacity: 1; }
+
+  /* Menu button: only shown when expanded; switches Sessions <-> Usage. */
+  .menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 20px;
+    border-radius: 6px;
+    color: var(--muted);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, background 0.15s, color 0.15s;
+  }
+  #island.expanded .menu-btn { opacity: 1; pointer-events: auto; transition-delay: 0.1s; }
+  .menu-btn:hover, .menu-btn.on { background: var(--track); color: var(--text); }
+
+  /* ---------- Expanded body ---------- */
+  .body {
+    position: absolute;
+    top: var(--bar-h);
+    left: 0;
+    width: 400px;
+    box-sizing: border-box;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  #island.expanded .body { opacity: 1; transition: opacity 0.25s ease 0.12s; }
+  .view { padding: 6px 10px 12px; }
+  .view.usage { padding: 10px 22px 16px; }
+
+  /* Session list */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 8px 8px 10px;
+    border-radius: 12px;
+  }
+  .row:hover { background: var(--row-hover); }
+  .row .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); align-self: flex-start; margin-top: 6px; }
+  .row .dot.working { background: var(--clawd); animation: pulse 1.2s ease-in-out infinite; }
+  .row .dot.waiting { background: var(--yellow); }
+  .row .dot.idle { background: var(--green); }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .row .main { flex: 1; min-width: 0; }
+  .row .title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .preview {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row .preview .tool { font-family: var(--mono); color: var(--yellow); margin-right: 5px; }
+  .row .actions { flex: none; display: flex; align-items: center; gap: 4px; }
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    color: var(--faint);
+    transition: background 0.15s, color 0.15s;
+  }
+  .icon-btn:hover { background: var(--track); color: var(--text); }
+  .icon-btn.done { color: var(--green); }
+  .pill {
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 11px;
+    border-radius: 999px;
+    transition: filter 0.15s;
+  }
+  .pill:hover { filter: brightness(1.2); }
+  .pill.deny { background: var(--track); color: var(--text); }
+  .pill.allow { background: var(--text); color: #000; }
+  .empty { font-size: 12.5px; color: var(--muted); line-height: 1.5; padding: 10px 12px; }
+
+  /* Usage view */
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  header .text { flex: 1; min-width: 0; }
+  header .title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .badge { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--track); color: var(--muted); }
+  .badge.live { color: var(--green); background: rgba(48, 209, 88, 0.14); }
+  .meter { margin-bottom: 12px; }
+  .meter .row-label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+  .meter .name { color: var(--muted); }
+  .meter .value { font-variant-numeric: tabular-nums; font-weight: 500; }
+  .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 3px; transition: width 0.6s var(--spring), background 0.3s; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+  .hint.warn { color: var(--orange); }
+  .divider { height: 1px; background: #1c1c1e; margin: 4px 0 12px; }
+  .usage .empty { padding: 0; margin-bottom: 12px; }
+
+  footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 11px; color: var(--faint); }
+  footer button { font-size: 11px; color: var(--muted); background: var(--track); border-radius: 999px; padding: 3px 10px; }
+  footer button:hover { color: var(--text); }
+</style>
+</head>
+<body>
+  <div id="island">
+    <div class="clip">
+      <div class="topbar">
+        <span id="topbar-left"></span>
+        <span class="spacer"></span>
+        <button class="menu-btn" id="menu-btn" title="Switch between sessions and usage"></button>
+        <span class="spinner" id="spinner">✻</span>
+      </div>
+      <div class="body" id="body"></div>
+    </div>
+  </div>
+
+<script>
+  const islandEl = document.getElementById("island");
+  const topbarLeftEl = document.getElementById("topbar-left");
+  const bodyEl = document.getElementById("body");
+  const menuBtn = document.getElementById("menu-btn");
+  const spinnerEl = document.getElementById("spinner");
+
+  const COMPACT_WIDTH = 200;
+  const EXPANDED_WIDTH = 400;
+  const BAR_HEIGHT = 30;
+  const STALE_MS = 30 * 60 * 1000; // Idle longer than this -> grey dot.
+  // The same symbols Claude Code cycles through while it thinks.
+  const SPINNER_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"];
+
+  let state = { sessions: [], limits: null };
+  let expanded = false;
+  let hovering = false;
+  let autoOpened = false; // Opened by itself because Claude asked for permission.
+  let view = "sessions"; // or "usage"
+  let working = false;
+  let lastActiveKey = null;
+  let copied = { id: null, until: 0 };
+
+  // ---------- Small helpers ----------
+
+  function colorFor(pct) {
+    if (pct == null) return "var(--muted)";
+    if (pct < 50) return "var(--green)";
+    if (pct < 75) return "var(--yellow)";
+    if (pct < 90) return "var(--orange)";
+    return "var(--red)";
+  }
+  const clamp = (n) => Math.max(0, Math.min(100, n ?? 0));
+  const fmtPct = (n) => (n == null ? "?" : `${Math.round(n)}%`);
+
+  function fmtTokens(n) {
+    if (n == null) return "–";
+    if (n >= 1e6) return `${+(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}M`;
+    if (n >= 1e3) return `${Math.round(n / 1e3)}K`;
+    return String(n);
+  }
+
+  function fmtAgo(ms) {
+    // Minute precision on purpose: the panel only redraws when text changes.
+    const s = Math.round((Date.now() - ms) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    return `${Math.floor(s / 3600)}h ago`;
+  }
+
+  function fmtResetsIn(ms) {
+    if (!ms) return "";
+    let mins = Math.max(0, Math.round((ms - Date.now()) / 60000));
+    const d = Math.floor(mins / 1440); mins -= d * 1440;
+    const h = Math.floor(mins / 60); const m = mins % 60;
+    if (d) return `resets in ${d}d ${h}h`;
+    if (h) return `resets in ${h}h ${m}m`;
+    return `resets in ${m}m`;
+  }
+
+  // Build text safely: never inject log data as HTML.
+  function el(tag, props = {}, children = []) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "style") Object.assign(node.style, v);
+      else if (k === "onclick") node.addEventListener("click", v);
+      else node[k] = v;
+    }
+    for (const c of [].concat(children)) if (c != null) node.append(c);
+    return node;
+  }
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  // Simple line icons, drawn with paths (our own code, not log data).
+  const ICONS = {
+    menu: "M3 5.5h10M3 10.5h10",
+    chat: "M3 4.5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7.5L4.5 13v-2.5H5a2 2 0 0 1-2-2z",
+    archive: "M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3",
+    check: "M3.5 8.5l3 3 6-7",
+    back: "M10 3.5L5.5 8l4.5 4.5",
+  };
+  function icon(name, size = 14) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("width", size);
+    svg.setAttribute("height", size);
+    svg.setAttribute("viewBox", "0 0 16 16");
+    const p = document.createElementNS(SVG_NS, "path");
+    p.setAttribute("d", ICONS[name]);
+    p.setAttribute("fill", "none");
+    p.setAttribute("stroke", "currentColor");
+    p.setAttribute("stroke-width", "1.4");
+    p.setAttribute("stroke-linecap", "round");
+    p.setAttribute("stroke-linejoin", "round");
+    svg.append(p);
+    return svg;
+  }
+
+  // Clawd drawn as pixel art: "#" = orange pixel, "." = empty (the eyes are gaps).
+  const CLAWD = [
+    ".########.",
+    ".#.####.#.",
+    "##########",
+    ".########.",
+    ".#.#..#.#.",
+  ];
+  function clawd(pixel) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "clawd");
+    svg.setAttribute("width", CLAWD[0].length * pixel);
+    svg.setAttribute("height", CLAWD.length * pixel);
+    CLAWD.forEach((row, y) => {
+      [...row].forEach((cell, x) => {
+        if (cell !== "#") return;
+        const rect = document.createElementNS(SVG_NS, "rect");
+        rect.setAttribute("x", x * pixel);
+        rect.setAttribute("y", y * pixel);
+        rect.setAttribute("width", pixel);
+        rect.setAttribute("height", pixel);
+        rect.setAttribute("fill", "var(--clawd)");
+        svg.append(rect);
+      });
+    });
+    return svg;
+  }
+
+  function meter(name, value, pct, hint, warn) {
+    return el("div", { className: "meter" }, [
+      el("div", { className: "row-label" }, [
+        el("span", { className: "name", textContent: name }),
+        el("span", { className: "value", textContent: value }),
+      ]),
+      el("div", { className: "bar" }, el("i", { style: { width: `${clamp(pct)}%`, background: colorFor(pct) } })),
+      hint ? el("div", { className: warn ? "hint warn" : "hint", textContent: hint }) : null,
+    ]);
+  }
+
+  // Only swap in the new content if it looks different. Rebuilding every
+  // second would reset hover states and could swallow a click mid-press.
+  function swap(container, children) {
+    const draft = document.createElement("div");
+    draft.append(...children.filter((c) => c != null));
+    if (draft.innerHTML !== container.innerHTML) container.replaceChildren(...draft.childNodes);
+  }
+
+  // The session that did something most recently (the list itself puts
+  // permission requests first, so it's not always sessions[0]).
+  function mostRecent() {
+    return state.sessions.reduce((a, b) => (!a || b.updatedAt > a.updatedAt ? b : a), null);
+  }
+
+  // ---------- Rendering ----------
+
+  function renderTopbar(active) {
+    const pct = active?.contextPct;
+    swap(topbarLeftEl, [
+      el("span", { style: { display: "flex", alignItems: "center", gap: "7px" } }, [
+        clawd(2),
+        el("span", { className: "value", textContent: fmtPct(pct), style: { color: pct == null ? "" : colorFor(pct) } }),
+      ]),
+    ]);
+    swap(menuBtn, [icon(view === "sessions" ? "menu" : "back")]);
+    menuBtn.classList.toggle("on", view === "usage");
+  }
+
+  function sessionRow(s) {
+    const stale = s.status === "idle" && Date.now() - s.updatedAt > STALE_MS;
+    const dotClass = stale ? "dot" : `dot ${s.status}`;
+    const request = s.pending[0];
+
+    // Preview line: what Claude is asking about, doing, or last said.
+    let tool = s.preview?.tool;
+    let text = s.preview?.text || "";
+    if (request) {
+      tool = request.tool;
+      text = request.summary;
+    } else if (s.status === "waiting") {
+      text = "Waiting for your answer in Claude";
+    }
+
+    const actions = [];
+    actions.push(el("button", {
+      className: copied.id === s.id && Date.now() < copied.until ? "icon-btn done" : "icon-btn",
+      title: "Copy resume command (claude --resume …)",
+      onclick: (e) => {
+        e.stopPropagation();
+        window.island.copyResume(s.id);
+        copied = { id: s.id, until: Date.now() + 1500 };
+        render();
+        setTimeout(render, 1600);
+      },
+    }, icon(copied.id === s.id && Date.now() < copied.until ? "check" : "chat")));
+
+    if (request) {
+      actions.push(el("button", { className: "pill deny", textContent: "Deny", onclick: () => window.island.decide(request.reqId, "deny") }));
+      actions.push(el("button", { className: "pill allow", textContent: "Allow", onclick: () => window.island.decide(request.reqId, "allow") }));
+    } else {
+      actions.push(el("button", {
+        className: "icon-btn",
+        title: "Archive (hide until it does something new)",
+        onclick: () => window.island.archive(s.id),
+      }, icon("archive")));
+    }
+
+    return el("div", { className: "row" }, [
+      el("span", { className: dotClass }),
+      el("div", { className: "main" }, [
+        el("div", { className: "title", textContent: s.title || s.project }),
+        el("div", { className: "preview" }, [
+          tool ? el("span", { className: "tool", textContent: tool }) : null,
+          text,
+        ]),
+      ]),
+      el("div", { className: "actions" }, actions),
+    ]);
+  }
+
+  function sessionsView() {
+    if (!state.sessions.length) {
+      return el("div", { className: "view" }, el("div", { className: "empty", textContent: "No Claude sessions in the last 3 hours." }));
+    }
+    return el("div", { className: "view" }, state.sessions.map(sessionRow));
+  }
+
+  function usageView(active, limits) {
+    const parts = [];
+    if (active) {
+      const sub = [];
+      if (active.model) sub.push(active.model);
+      if (active.costUsd != null) sub.push(`$${active.costUsd.toFixed(2)}`);
+      sub.push(fmtAgo(active.updatedAt));
+      parts.push(el("header", {}, [
+        clawd(3),
+        el("div", { className: "text" }, [
+          el("div", { className: "title", textContent: active.title || active.project }),
+          el("div", { className: "sub", textContent: sub.join(" · ") }),
+        ]),
+        el("span", {
+          className: active.source === "live" ? "badge live" : "badge",
+          textContent: active.source === "live" ? "Live" : "Estimated",
+          title: active.source === "live" ? "Exact numbers from Claude Code's status line" : "Calculated from the conversation log; window size assumed",
+        }),
+      ]));
+      const pct = active.contextPct;
+      if (pct != null) {
+        let hint = `${Math.round(100 - clamp(pct))}% left`;
+        if (pct >= 80) hint = "Almost full. Consider /compact or a new session.";
+        parts.push(meter("Context window", `${fmtTokens(active.contextTokens)} / ${fmtTokens(active.contextSize)}`, pct, hint, pct >= 80));
+      } else {
+        parts.push(el("div", { className: "empty", textContent: "Context size appears after Claude's first reply." }));
+      }
+    } else {
+      parts.push(el("div", { className: "empty", textContent: "No Claude session in the last 3 hours." }));
+    }
+
+    parts.push(el("div", { className: "divider" }));
+    if (limits && (limits.fiveHour || limits.sevenDay)) {
+      if (limits.fiveHour) parts.push(meter("5-hour limit", fmtPct(limits.fiveHour.pct), limits.fiveHour.pct, fmtResetsIn(limits.fiveHour.resetsAt)));
+      if (limits.sevenDay) parts.push(meter("Weekly limit", fmtPct(limits.sevenDay.pct), limits.sevenDay.pct, fmtResetsIn(limits.sevenDay.resetsAt)));
+      parts.push(el("div", { className: "hint", style: { marginTop: "-4px", marginBottom: "8px" }, textContent: `Limits updated ${fmtAgo(limits.updatedAt)}` }));
+    } else {
+      parts.push(el("div", { className: "empty", textContent: "Usage limits show up after Claude replies in a terminal session." }));
+    }
+
+    parts.push(el("footer", {}, [
+      el("span", { textContent: "Ctrl+Alt+I to hide" }),
+      el("button", { textContent: "Quit", onclick: () => window.island.quit() }),
+    ]));
+    return el("div", { className: "view usage" }, parts);
+  }
+
+  function resize() {
+    if (expanded) {
+      islandEl.style.width = `${EXPANDED_WIDTH}px`;
+      islandEl.style.height = `${BAR_HEIGHT + bodyEl.scrollHeight}px`;
+    } else {
+      islandEl.style.width = `${COMPACT_WIDTH}px`;
+      islandEl.style.height = `${BAR_HEIGHT}px`;
+    }
+  }
+
+  function render() {
+    const active = mostRecent();
+    renderTopbar(active);
+    swap(bodyEl, [view === "sessions" ? sessionsView() : usageView(active, state.limits)]);
+    working = state.sessions.some((s) => s.status === "working");
+    islandEl.classList.toggle("working", working);
+    resize();
+  }
+
+  function setExpanded(value) {
+    expanded = value;
+    islandEl.classList.toggle("expanded", value);
+    resize();
+  }
+
+  // ---------- Spinner ----------
+
+  let frame = 0;
+  setInterval(() => {
+    if (working) {
+      frame = (frame + 1) % SPINNER_FRAMES.length;
+      spinnerEl.textContent = SPINNER_FRAMES[frame];
+    } else if (spinnerEl.textContent !== "✻") {
+      spinnerEl.textContent = "✻"; // Resting symbol when idle.
+    }
+  }, 120);
+
+  // ---------- Events ----------
+
+  window.island.onUpdate((next) => {
+    state = next;
+    const hasRequest = state.sessions.some((s) => s.pending.length > 0);
+
+    // Claude asked for permission: open the list by itself so you see it.
+    if (hasRequest && !expanded) {
+      autoOpened = true;
+      view = "sessions";
+      setExpanded(true);
+    }
+    // All answered: close again, unless your mouse is on it.
+    if (!hasRequest && autoOpened) {
+      autoOpened = false;
+      if (!hovering) setExpanded(false);
+    }
+
+    // A little "bump" when the most recent session does something, like iOS.
+    const active = mostRecent();
+    const key = active ? `${active.id}:${active.updatedAt}` : null;
+    if (lastActiveKey && key && key !== lastActiveKey && !expanded) {
+      islandEl.classList.remove("bump");
+      void islandEl.offsetWidth; // Restart the animation.
+      islandEl.classList.add("bump");
+    }
+    lastActiveKey = key;
+    render();
+  });
+
+  menuBtn.addEventListener("click", () => {
+    view = view === "sessions" ? "usage" : "sessions";
+    render();
+  });
+
+  // Clicks pass through the see-through window, except over the notch.
+  // The page still gets mouse moves, so we switch clicking on and off
+  // depending on whether the mouse is over the notch.
+  let clickable = false;
+  document.addEventListener("mousemove", (e) => {
+    const over = islandEl.contains(e.target);
+    if (over !== clickable) {
+      clickable = over;
+      window.island.setHover(over);
+    }
+  });
+
+  let collapseTimer = null;
+  islandEl.addEventListener("mouseenter", () => {
+    hovering = true;
+    clearTimeout(collapseTimer);
+    setExpanded(true);
+  });
+  islandEl.addEventListener("mouseleave", () => {
+    hovering = false;
+    if (autoOpened) return; // Stay open until the permission question is answered.
+    collapseTimer = setTimeout(() => {
+      setExpanded(false);
+      view = "sessions"; // Always reopen on the session list.
+      render();
+    }, 250);
+  });
+  document.addEventListener("mouseleave", () => {
+    if (clickable) {
+      clickable = false;
+      window.island.setHover(false);
+    }
+  });
+
+  // Keep "2m ago" and countdowns ticking between data updates.
+  setInterval(render, 1000);
+  render();
+</script>
+</body>
+</html>

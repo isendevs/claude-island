@@ -1,0 +1,19 @@
+{
+  "name": "claude-island",
+  "productName": "Claude Island",
+  "version": "1.0.0",
+  "description": "A notch for your Windows desktop that shows Claude Code sessions, permission requests, context and usage limits.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/live.test.js",
+    "icon": "node build/make-icon.js",
+    "package": "electron-packager . \"Claude Island\" --platform=win32 --arch=x64 --icon=build/icon.ico --out=dist --overwrite --ignore=^/dist --ignore=^/build --ignore=README.md",
+    "install-app": "powershell -NoProfile -ExecutionPolicy Bypass -File build/install.ps1"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.7.0"
+  }
+}

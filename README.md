@@ -53,7 +53,7 @@ Each session's data is merged from three sources:
 Requirements: Windows 10/11, [Node.js](https://nodejs.org) 22.2+ on your PATH, Claude Code.
 
 ```bash
-git clone https://github.com/<your-username>/claude-island.git
+git clone https://github.com/isendevs/claude-island.git
 cd claude-island
 npm install
 npm run package
